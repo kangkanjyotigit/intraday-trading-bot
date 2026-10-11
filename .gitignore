@@ -1,0 +1,34 @@
+# --- secrets: NEVER commit these ---
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- python ---
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+env/
+*.egg-info/
+
+# --- data / build output ---
+*.sqlite3
+*.db
+*.log
+celerybeat-schedule
+mediafiles/
+staticfiles/
+instance/
+flask_session/
+logs/
+
+# --- node ---
+node_modules/
+
+# --- os / editor ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

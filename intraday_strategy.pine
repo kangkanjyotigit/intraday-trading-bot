@@ -1,0 +1,97 @@
+//@version=5
+// Intraday Profit Booking Strategy for NSE Equities – TradingView Pine Script
+// Copy-paste this file into TradingView ➜ Pine Editor and add to chart.
+// Alerts: set alert on "Any alert() function call" after adding to chart.
+
+strategy(
+    title="Intraday Profit Booking Strategy v2",
+    overlay=true,
+    initial_capital=100000,
+    default_qty_type=strategy.percent_of_equity,
+    default_qty_value=100,
+    commission_type=strategy.commission.percent,
+    commission_value=0.05,
+    pyramiding=1,
+    calc_on_every_tick=true,
+    calc_on_order_fills=true
+)
+
+//──────────── INPUTS ────────────
+sessionInput   = input.session("0915-1515", "Trading Hours (IST)")
+fastLen        = input.int(20,  "Fast EMA")
+medLen         = input.int(50,  "Medium EMA")
+slowLen        = input.int(100, "Slow EMA")
+rsiLen         = input.int(14,  "RSI Length")
+atrLen         = input.int(14,  "ATR Length")
+atrStopMult    = input.float(1.0, "ATR SL Multiplier", step=0.1)
+usePartialExit = input.bool(true,  "Use Partial Profit Taking")
+riskPct        = input.float(1.0, "Risk per Trade (%)", minval=0.1, maxval=5.0, step=0.1)
+
+inSession = time(timeframe.period, sessionInput)
+
+//──────────── INDICATORS ────────────
+emaFast  = ta.ema(close, fastLen)
+emaMed   = ta.ema(close, medLen)
+emaSlow  = ta.ema(close, slowLen)
+
+vwap      = ta.vwap
+vwapSlope = ta.change(vwap, 1)
+var float vwapDev = na
+vwapDev := ta.stdev(close - vwap, 20) * 2
+upperVWAP = vwap + vwapDev
+lowerVWAP = vwap - vwapDev
+
+rsiVal = ta.rsi(close, rsiLen)
+atrVal = ta.atr(atrLen)
+
+//──────────── CONDITIONS ────────────
+upTrend   = emaFast > emaMed and emaMed > emaSlow and close > vwap
+longEntry = ta.crossover(emaFast, emaMed) and upTrend and rsiVal > 50 and vwapSlope > 0
+
+dnTrend    = emaFast < emaMed and emaMed < emaSlow and close < vwap
+shortEntry = ta.crossunder(emaFast, emaMed) and dnTrend and rsiVal < 50 and vwapSlope < 0
+
+//──────────── POSITION SIZE ────────────
+riskCash     = strategy.equity * (riskPct / 100)
+qtyContracts = na(atrVal) or atrVal == 0 ? 0 : riskCash / (atrVal * atrStopMult)
+
+//──────────── EXECUTION ────────────
+if inSession and not strategy.position_size
+    if longEntry and qtyContracts > 0
+        strategy.entry("Long", strategy.long, qty=qtyContracts)
+        // TP1 & SL
+        tp1 = close + atrVal * 1.2
+        sl  = close - atrVal * atrStopMult
+        strategy.exit("Long_TP1", "Long", limit=tp1, stop=sl, qty_percent=usePartialExit ? 50 : 100)
+        // TP2 trails from TP1 using ATR grid
+        if usePartialExit
+            tp2 = close + atrVal * 2.0
+            strategy.exit("Long_TP2", "Long", limit=tp2, trail_offset=atrVal * 0.5)
+
+    if shortEntry and qtyContracts > 0
+        strategy.entry("Short", strategy.short, qty=qtyContracts)
+        tp1 = close - atrVal * 1.2
+        sl  = close + atrVal * atrStopMult
+        strategy.exit("Short_TP1", "Short", limit=tp1, stop=sl, qty_percent=usePartialExit ? 50 : 100)
+        if usePartialExit
+            tp2 = close - atrVal * 2.0
+            strategy.exit("Short_TP2", "Short", limit=tp2, trail_offset=atrVal * 0.5)
+
+// Square-off 5 min before market close
+squareOff = time("1509-1515", sessionInput)
+if squareOff and strategy.position_size != 0
+    strategy.close_all(comment="EOD Square-off")
+
+//──────────── ALERTS ────────────
+alertcondition(longEntry,  title="BUY Alert",  message="BUY {{ticker}} @ {{close}} | TF={{interval}} | Reason=EMA+RSI+VWAP")
+alertcondition(shortEntry, title="SELL Alert", message="SELL {{ticker}} @ {{close}} | TF={{interval}} | Reason=EMA+RSI+VWAP")
+
+//──────────── PLOTS ────────────
+plot(emaFast,  "EMA 20",  color=color.blue)
+plot(emaMed,   "EMA 50",  color=color.orange)
+plot(emaSlow,  "EMA 100", color=color.red)
+plot(vwap,     "VWAP",    color=color.purple, linewidth=2)
+plot(upperVWAP, "VWAP +2σ", color=color.gray)
+plot(lowerVWAP, "VWAP -2σ", color=color.gray)
+plotshape(longEntry,  title="Long",  style=shape.triangleup,   location=location.belowbar, color=color.green, size=size.tiny)
+plotshape(shortEntry, title="Short", style=shape.triangledown, location=location.abovebar, color=color.red,   size=size.tiny)
